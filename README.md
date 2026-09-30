@@ -25,7 +25,7 @@ A production-grade workspace where **digital agencies** run client projects and 
 
 ## 🌐 Live demo & credentials
 
-**Live URL:** `https://appzex-agency-saas-922k.vercel.app/` <!-- TODO: replace with the deployed URL before submission -->
+**Live URL:** https://appzex-agency-saas-922k.vercel.app/ <!-- TODO: replace with the deployed URL before submission -->
 
 The login page has **one-click "Quick demo credentials"** buttons that pre-fill any account below. Every account uses the password **`Password123!`**.
 
