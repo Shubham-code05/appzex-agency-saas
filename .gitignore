@@ -12,3 +12,5 @@ npm-debug.log*
 
 # Uploaded files (local storage driver)
 /storage/
+
+.vercel
