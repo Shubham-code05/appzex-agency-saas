@@ -8,7 +8,7 @@ A production-grade workspace where **digital agencies** run client projects and 
 
 ## Table of contents
 
-1. [Live demo & credentials](#-live-demo--credentials)
+1. [Live demo & credentials](appzex-agency-saas-922k.vercel.app)
 2. [Five-minute evaluator tour](#-five-minute-evaluator-tour)
 3. [Features by role](#-features-by-role)
 4. [Architecture](#-architecture)
