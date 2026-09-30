@@ -1,0 +1,295 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum AgencyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Role {
+  SUPER_ADMIN
+  AGENCY_ADMIN
+  AGENCY_TEAM
+  CLIENT
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_REVIEW
+  IN_PROGRESS
+  RESOLVED
+  DECLINED
+  /// Legacy (pre-Phase 4). Kept so existing rows survive `db push`; treated as IN_REVIEW.
+  ACKNOWLEDGED
+}
+
+// ─── Tenancy root ───────────────────────────────────────────────────────────
+
+model Agency {
+  id        String       @id @default(cuid())
+  name      String
+  status    AgencyStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  users        User[]
+  clients      Client[]
+  projects     Project[]
+  activityLogs ActivityLog[]
+}
+
+// ─── Identity ───────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  /// NULL only for SUPER_ADMIN. Every other role is bound to exactly one tenant.
+  agencyId     String?
+  /// Set only for CLIENT users: the Client record whose projects they may see.
+  clientId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agency Agency? @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  assignedTasks     Task[]            @relation("TaskAssignee")
+  organizedMeetings Meeting[]         @relation("MeetingOrganizer")
+  feedback          Feedback[]
+  feedbackMessages  FeedbackMessage[]
+  uploadedFiles     FileRecord[]
+  activityLogs      ActivityLog[]
+
+  @@index([agencyId])
+  @@index([clientId])
+}
+
+// ─── Tenant-owned data ──────────────────────────────────────────────────────
+
+model Client {
+  id           String   @id @default(cuid())
+  name         String
+  companyName  String
+  contactEmail String
+  agencyId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agency   Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  users    User[]
+  projects Project[]
+
+  @@unique([agencyId, contactEmail])
+  @@index([agencyId])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?       @db.Text
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime?
+  endDate     DateTime?
+  agencyId    String
+  clientId    String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  tasks        Task[]
+  milestones   Milestone[]
+  meetings     Meeting[]
+  feedback     Feedback[]
+  files        FileRecord[]
+  activityLogs ActivityLog[]
+
+  @@index([agencyId])
+  @@index([clientId])
+  @@index([agencyId, clientId])
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+  projectId   String
+  assigneeId  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  files    FileRecord[]
+
+  @@index([projectId, status])
+  @@index([assigneeId])
+}
+
+model Milestone {
+  id          String          @id @default(cuid())
+  title       String
+  description String?         @db.Text
+  status      MilestoneStatus @default(PENDING)
+  dueDate     DateTime?
+  projectId   String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Meeting {
+  id                 String   @id @default(cuid())
+  title              String
+  agenda             String?  @db.Text
+  scheduledAt        DateTime
+  durationMinutes    Int      @default(30)
+  meetingUrl         String?
+  notes              String?  @db.Text
+  /// Only meetings with this flag are visible in the client portal.
+  isSharedWithClient Boolean  @default(false)
+  projectId          String
+  organizerId        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizer User?   @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, scheduledAt])
+}
+
+/// A client change request / feedback item. `content` holds the description.
+model Feedback {
+  id        String         @id @default(cuid())
+  title     String         @default("") @db.VarChar(200)
+  content   String         @db.Text
+  rating    Int?
+  status    FeedbackStatus @default(OPEN)
+  projectId String
+  authorId  String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author   User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  messages FeedbackMessage[]
+  files    FileRecord[]
+
+  @@index([projectId, status])
+  @@index([authorId])
+}
+
+/// One entry in a feedback conversation: a reply, a status change, or both.
+model FeedbackMessage {
+  id         String          @id @default(cuid())
+  feedbackId String
+  authorId   String?
+  /// NULL for a pure status-change entry.
+  body       String?         @db.Text
+  fromStatus FeedbackStatus?
+  toStatus   FeedbackStatus?
+  createdAt  DateTime        @default(now())
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  author   User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([feedbackId, createdAt])
+}
+
+model FileRecord {
+  id                 String   @id @default(cuid())
+  fileName           String
+  /// Object-storage key (e.g. S3 key). Never a public URL; URLs are signed on demand.
+  storageKey         String   @unique
+  mimeType           String
+  sizeBytes          Int
+  /// Clients can only list/download files with this flag (client uploads are always shared).
+  isSharedWithClient Boolean  @default(false)
+  /// Every file belongs to a project (the tenant boundary) and may also be
+  /// attached to one of that project's tasks or feedback items.
+  projectId          String
+  taskId             String?
+  feedbackId         String?
+  uploadedById       String?
+  createdAt          DateTime @default(now())
+
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  feedback   Feedback? @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  uploadedBy User?     @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, isSharedWithClient])
+  @@index([taskId])
+  @@index([feedbackId])
+}
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  action       String
+  entityType   String
+  entityId     String?
+  metadata     Json?
+  /// NULL for platform-level events (e.g. super-admin actions).
+  agencyId     String?
+  /// Set for project-scoped events so per-project timelines are an indexed query.
+  projectId    String?
+  /// Only events with this flag appear in the client portal timeline.
+  isClientView Boolean  @default(false)
+  userId       String?
+  createdAt    DateTime @default(now())
+
+  agency  Agency?  @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([agencyId, createdAt])
+  @@index([projectId, isClientView, createdAt])
+  @@index([userId])
+}

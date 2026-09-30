@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Height reserved by the Support Mode banner so sticky sidebars sit below it. */
+:root {
+  --support-banner-h: 0px;
+}
+@media (min-width: 48rem) {
+  body:has([data-support-banner]) {
+    --support-banner-h: 3rem;
+  }
+}
